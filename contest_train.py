@@ -323,4 +323,3 @@ if __name__ == '__main__':
 
 # CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 contest_train.py --data-dir ../CVPR-PIC-DATA/ --random-mirror --random-scale --gpu 0,1,2,3 --learning-rate 1e-3 --weight-decay 5e-4 --batch-size 3 --input-size 473,473 --snapshot-dir ./snapshots/ --dataset train --num-classes 18 --epochs 20
 
-# CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 contest_train.py --data-dir ../CVPR-PIC-DATA/ --random-mirror --random-scale --gpu 0,1,2,3 --learning-rate 1e-3 --weight-decay 5e-4 --batch-size 2 --input-size 473,473 --snapshot-dir ./snapshots/ --dataset train --num-classes 18 --epochs 20 --restore-from '/home/xian/Documents/xinpeng/CVPR-PIC-DATA/LIP.pth'
