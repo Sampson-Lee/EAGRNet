@@ -28,7 +28,6 @@ def flip_back(output_flipped, matched_parts):
 
     return output_flipped
   
-
 def transform_parsing(pred, center, scale, width, height, input_size):
 
     trans = get_affine_transform(center, scale, 0, input_size, inv=1)
@@ -42,6 +41,18 @@ def transform_parsing(pred, center, scale, width, height, input_size):
 
     return target_pred
 
+def transform_image(image, center, scale, width, height, input_size):
+
+    trans = get_affine_transform(center, scale, 0, input_size, inv=1)
+    target_image = cv2.warpAffine(
+            image,
+            trans,
+            (int(width), int(height)), #(int(width), int(height)),
+            flags=cv2.INTER_NEAREST,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(0,0,0))
+
+    return target_image
 
 def get_affine_transform(center,
                          scale,

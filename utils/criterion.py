@@ -4,7 +4,6 @@ import numpy as np
 from torch.nn import functional as F
 from .loss import OhemCrossEntropy2d
 
-
 class CriterionAll(nn.Module):
     def __init__(self, ignore_index=255):
         super(CriterionAll, self).__init__()

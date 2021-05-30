@@ -8,7 +8,8 @@ from PIL import Image as PILImage
 from utils.transforms import transform_parsing
 from tqdm import tqdm
 
-LABELS = ['background', 'skin', 'nose', 'eye_g', 'l_eye', 'r_eye', 'l_brow', 'r_brow', 'l_ear', 'r_ear', 'mouth', 'u_lip', 'l_lip', 'hair', 'hat', 'ear_r', 'neck_l', 'neck', 'cloth']
+LABELS = ['background', 'face_skin', 'left_eyebrow', 'right_eyebrow', 'left_eye', 'right_eye', 'nose', 'lower_lip', 'inner_mouth', 'upper_lip', 'hair', 'left_eye_shadow', 'right_eye_shadow', 'left_ear', 'right_ear', 'hat', 'glasses', 'Else skin']
+
 def get_palette(num_cls):
     """ Returns the color map for visualizing the segmentation mask.
     Args:
@@ -98,14 +99,15 @@ def compute_mean_ioU(preds, scales, centers, num_classes, datadir, input_size=[4
     hists = []
     for i, im_name in enumerate(val_id):
         gt_path = os.path.join(datadir, 'labels_raw', im_name + '.png')
-        proj = np.load(os.path.join(datadir, 'project', im_name + '.npy'))
         gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
         h, w = gt.shape
         pred_out = preds[i]
         s = scales[i]
         c = centers[i]
+        
         pred = transform_parsing(pred_out, c, s, w, h, input_size)
         if reverse:
+            proj = np.load(os.path.join(datadir, 'project', im_name + '.npy'))
             pred = cv2.warpAffine(pred, proj, (gt.shape[1], gt.shape[0]), borderValue=0, flags = cv2.INTER_NEAREST)
 
         gt = np.asarray(gt, dtype=np.int32)
@@ -137,31 +139,19 @@ def compute_mean_ioU(preds, scales, centers, num_classes, datadir, input_size=[4
     print('Mean accuracy: %f \n' % mean_accuracy)
     print('Mean IU: %f \n' % mean_IoU)
     mIoU_value = []
-    for i, (label, iou) in enumerate(zip(LABELS, IoU_array)):
-        mIoU_value.append((label, iou))
-
     f1_value = []
-    for eval_name, (gt_inds, pred_inds) in eval_names.items():
-        A = hist_sum[gt_inds, :].sum()
-        B = hist_sum[:, pred_inds].sum()
-        intersected = hist_sum[gt_inds, :][:, pred_inds].sum()
-        f1 = 2 * intersected / (A + B)
-        print(f'f1_{eval_name}={f1}')
-        f1_value.append((eval_name, f1))
 
-    eval_names = dict()
-    for label_name in gt_label_names:
-        gt_ind = gt_label_names.index(label_name)
-        pred_ind = pred_label_names.index(label_name)
-        eval_names[label_name] = ([gt_ind], [pred_ind])
-
-    for eval_name, (gt_inds, pred_inds) in eval_names.items():
-        A = hist_sum[gt_inds, :].sum()
-        B = hist_sum[:, pred_inds].sum()
-        intersected = hist_sum[gt_inds, :][:, pred_inds].sum()
+    for ind, label_name in enumerate(LABELS):
+        iou = IoU_array[ind]
+        mIoU_value.append((label_name, iou))
+        
+        A = hist_sum[ind, :].sum()
+        B = hist_sum[:, ind].sum()
+        intersected = hist_sum[ind, :][:, ind].sum()
         f1 = 2 * intersected / (A + B)
-        print(f'f1_{eval_name}={f1}')
-        f1_value.append((eval_name, f1))
+        f1_value.append((label_name, f1))
+        
+        print(f'iou_{label_name}={iou} f1_{label_name}={f1}')
 
     mIoU_value.append(('Pixel accuracy', pixel_accuracy))
     mIoU_value.append(('Mean accuracy', mean_accuracy))

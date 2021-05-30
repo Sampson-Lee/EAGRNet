@@ -12,7 +12,7 @@ import torch.distributed as dist
 import os
 import os.path as osp
 from networks.EAGR import EAGRNet
-from dataset.datasets import HelenDataSet
+from dataset.pic import PICDataSet
 import torchvision.transforms as transforms
 import timeit
 from tensorboardX import SummaryWriter
@@ -52,7 +52,6 @@ def str2bool(v):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
-
 
 def get_arguments():
     """Parse all the arguments provided from the CLI.
@@ -103,10 +102,12 @@ def get_arguments():
                         help="choose the number of recurrence.")
     parser.add_argument("--epochs", type=int, default=150,
                         help="choose the number of recurrence.")
-    parser.add_argument("--local_rank", type=int, default=0,
+    parser.add_argument("--local_rank", type=int, default=-1,
                         help="choose gpu numbers") 
     parser.add_argument('--dist-backend', default='nccl', type=str,
                         help='distributed backend')
+    parser.add_argument('--init_method', default='tcp://127.0.0.1:33271', type=str,
+                        help='distributed port')
     return parser.parse_args()
 
 
@@ -169,12 +170,13 @@ def main():
 
     try:
         world_size = int(os.environ['WORLD_SIZE'])
+        print(world_size)
         distributed = world_size > 1
     except:
         distributed = False
         world_size = 1
     if distributed:
-        dist.init_process_group(backend=args.dist_backend, init_method='env://')
+        dist.init_process_group(backend = args.dist_backend, init_method = args.init_method, world_size = world_size, rank = args.local_rank)
     rank = 0 if not distributed else dist.get_rank()
 
     writer = SummaryWriter(osp.join(args.snapshot_dir, TIMESTAMP)) if rank == 0 else None
@@ -189,22 +191,21 @@ def main():
         model = EAGRNet(args.num_classes)
     else:
         model = EAGRNet(args.num_classes, InPlaceABN)
-    if args.restore_from is not None:
-        model.load_state_dict(torch.load(args.restore_from), True)
-    else:
-        resnet_params = torch.load(os.path.join(args.snapshot_dir, 'resnet101-imagenet.pth'))
-        new_params = model.state_dict().copy()
-        for i in resnet_params:
-            i_parts = i.split('.')
-            # print(i_parts)
-            if not i_parts[0] == 'fc':
-                new_params['.'.join(i_parts[0:])] = resnet_params[i]
-        model.load_state_dict(new_params)
+
+    # if args.restore_from is not None:
+    #     model.load_state_dict(torch.load(args.restore_from), True)
+    # else:
+    #     resnet_params = torch.load(os.path.join(args.snapshot_dir, 'resnet101-imagenet.pth'))
+    #     new_params = model.state_dict().copy()
+    #     for i in resnet_params:
+    #         i_parts = i.split('.')
+    #         # print(i_parts)
+    #         if not i_parts[0] == 'fc':
+    #             new_params['.'.join(i_parts[0:])] = resnet_params[i]
+    #     model.load_state_dict(new_params)
     model.cuda()
     if distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
-                                                          output_device=args.local_rank,
-                                                          find_unused_parameters=True)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
     else:
         model = SingleGPU(model)
 
@@ -219,14 +220,13 @@ def main():
         normalize,
     ])
     
-    train_dataset = HelenDataSet(args.data_dir, args.dataset, crop_size=input_size, transform=transform)
+    train_dataset = PICDataSet(args.data_dir, args.dataset, crop_size=input_size, transform=transform)
     if distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     else:
         train_sampler = None
-    trainloader = data.DataLoader(train_dataset, batch_size=args.batch_size , shuffle=False, num_workers=2,
-                                  pin_memory=True, drop_last=True, sampler=train_sampler)
-    val_dataset = HelenDataSet(args.data_dir, 'test', crop_size=input_size, transform=transform)
+    trainloader = data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2, pin_memory=True, drop_last=True,sampler=train_sampler)
+    val_dataset = PICDataSet(args.data_dir, 'val', crop_size=input_size, transform=transform)
     num_samples = len(val_dataset)
     
     valloader = data.DataLoader(val_dataset, batch_size=args.batch_size ,
@@ -254,7 +254,6 @@ def main():
             edges = edges.long().cuda(non_blocking=True)
 
             preds = model(images)
-            
 
             loss = criterion(preds, [labels, edges])
             optimizer.zero_grad()
@@ -291,7 +290,6 @@ def main():
                     edge = vutils.make_grid(edges_colors, normalize=False, scale_each=True)
                     pred_edge = vutils.make_grid(pred_edges, normalize=False, scale_each=True)
 
-
                     writer.add_image('Images/', img, i_iter)
                     writer.add_image('Labels/', lab, i_iter)
                     writer.add_image('Preds/', pred, i_iter)
@@ -304,7 +302,7 @@ def main():
 
             if epoch % args.test_fre == 0:
                 parsing_preds, scales, centers = valid(model, valloader, input_size, num_samples)
-                mIoU, f1 = compute_mean_ioU(parsing_preds, scales, centers, args.num_classes, args.data_dir, input_size, 'test', True)
+                mIoU, f1 = compute_mean_ioU(parsing_preds, scales, centers, args.num_classes, args.data_dir, input_size, 'val', True)
                 if f1['overall'] > best_f1:
                     torch.save(model.module.state_dict(), osp.join(args.snapshot_dir, TIMESTAMP, 'best.pth'))
                     best_f1 = f1['overall']
@@ -313,10 +311,10 @@ def main():
                 writer.add_scalars('mIoU', mIoU, epoch)
                 writer.add_scalars('f1', f1, epoch)
 
-
     end = timeit.default_timer()
     print(end - start, 'seconds')
- 
 
 if __name__ == '__main__':
     main()
+
+# CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 train.py --data-dir ../CVPR-PIC-DATA/ --random-mirror --random-scale --gpu 0,1,2,3 --learning-rate 1e-3 --weight-decay 5e-4 --batch-size 2 --input-size 473,473 --snapshot-dir ./snapshots/ --dataset train --num-classes 18 --epochs 99

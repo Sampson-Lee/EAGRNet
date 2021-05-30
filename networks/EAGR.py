@@ -76,7 +76,6 @@ class Edge_Module(nn.Module):
         self.conv4 = nn.Conv2d(mid_fea,out_fea, kernel_size=3, padding=1, dilation=1, bias=True)
         self.conv5 = nn.Conv2d(out_fea*3,out_fea, kernel_size=1, padding=0, dilation=1, bias=True)
             
-
     def forward(self, x1, x2, x3):
         _, _, h, w = x1.size()
         
@@ -139,7 +138,8 @@ class Decoder_Module(nn.Module):
             nn.Conv2d(256, 256, kernel_size=1, padding=0, dilation=1, bias=False),
             abn(256)
             )
-        self.conv4 = nn.Conv2d(256, num_classes, kernel_size=1, padding=0, dilation=1, bias=True)
+        # self.conv4 = nn.Conv2d(256, num_classes, kernel_size=1, padding=0, dilation=1, bias=True)
+        self.conv4_ = nn.Conv2d(256, num_classes, kernel_size=1, padding=0, dilation=1, bias=True)
 
     def forward(self, xt, xl):
         _, _, h, w = xl.size()
@@ -148,7 +148,7 @@ class Decoder_Module(nn.Module):
         xl = self.conv2(xl)
         x = torch.cat([xt, xl], dim=1)
         x = self.conv3(x)
-        seg = self.conv4(x)
+        seg = self.conv4_(x)
         return seg, x 
 
 class GCN(nn.Module):
@@ -267,7 +267,7 @@ class EAGRNet(nn.Module):
         x4 = self.layer3(x3) # 60 x 60
         x5 = self.layer4(x4) # 60 x 60
         x = self.layer5(x5) # 60 x 60
-        edge,edge_fea = self.edge_layer(x2,x3,x4)
+        edge, edge_fea = self.edge_layer(x2, x3, x4)
         x = self.block1(x, edge.detach())
         x2 = self.block2(x2, edge.detach())
         seg, x = self.layer6(x, x2)

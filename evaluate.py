@@ -9,7 +9,8 @@ import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 from networks.EAGR import EAGRNet
 from collections import OrderedDict
-from dataset.datasets import HelenDataSet
+from dataset.helen import HelenDataSet
+from dataset.pic import PICDataSet
 import os
 import torchvision.transforms as transforms
 from utils.miou import compute_mean_ioU
@@ -53,6 +54,7 @@ def get_arguments():
     return parser.parse_args()
 
 def valid(model, valloader, input_size, num_samples, dir=None):
+    print('testing: {} samples'.format(num_samples))
     model.eval()
     parsing_preds = np.zeros((num_samples, input_size[0], input_size[1]),
                              dtype=np.uint8)
@@ -66,15 +68,15 @@ def valid(model, valloader, input_size, num_samples, dir=None):
         for index, batch in enumerate(valloader):
             image, edge, meta = batch
             num_images = image.size(0)
-            if index % 10 == 0:
-                print('%d  processd' % (index * num_images))
+            if (index+1) % 2 == 0:
+                print('{} processd {} remained'.format(index * num_images, num_samples))
 
             c = meta['center'].numpy()
             s = meta['scale'].numpy()
             scales[idx:idx + num_images, :] = s[:, :]
             centers[idx:idx + num_images, :] = c[:, :]
 
-            outputs,_ = model(image.cuda())
+            outputs, _ = model(image.cuda())
 
             if isinstance(outputs, list):
                 for output in outputs:
@@ -93,10 +95,8 @@ def valid(model, valloader, input_size, num_samples, dir=None):
                 if dir is not None:
                     for i in range(len(meta['name'])):
                         cv2.imwrite(os.path.join(dir, meta['name'][i] + '.png'), np.asarray(np.argmax(parsing, axis=3))[i])
-
                 idx += num_images
     parsing_preds = parsing_preds[:num_samples, :, :]
-
 
     return parsing_preds, scales, centers
 
@@ -105,7 +105,7 @@ def main():
 
     args = get_arguments()
 
-    os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     gpus = [int(i) for i in args.gpu.split(',')]
 
     h, w = map(int, args.input_size.split(','))
@@ -121,14 +121,14 @@ def main():
         normalize,
     ])
 
-    dataset = HelenDataSet(args.data_dir, args.dataset, crop_size=input_size, transform=transform)
+    dataset = PICDataSet(args.data_dir, args.dataset, crop_size=input_size, transform=transform)
     num_samples = len(dataset)
-
+    
     valloader = data.DataLoader(dataset, batch_size=args.batch_size,
                                 shuffle=False, pin_memory=True)
 
     restore_from = args.restore_from
-    state_dict_old = torch.load(restore_from,map_location='cuda:0')
+    state_dict_old = torch.load(restore_from, map_location='cuda:0')
     model.load_state_dict(state_dict_old)
     
     model.cuda()
@@ -138,7 +138,7 @@ def main():
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     parsing_preds, scales, centers = valid(model, valloader, input_size, num_samples, save_path)
-    mIoU, f1 = compute_mean_ioU(parsing_preds, scales, centers, args.num_classes, args.data_dir, input_size, 'test', reverse=True)
+    # mIoU, f1 = compute_mean_ioU(parsing_preds, scales, centers, args.num_classes, args.data_dir, input_size, 'test', reverse=True)
 
     print(mIoU)
     print(f1)
