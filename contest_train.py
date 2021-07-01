@@ -24,6 +24,7 @@ from evaluate import valid
 import datetime, time
 from torch.utils.data.distributed import DistributedSampler
 from inplace_abn import InPlaceABN, InPlaceABNSync
+from IPython import embed
 
 TIMESTAMP = "pic"+"{0:%Y-%m-%dT%H-%M-%S/}".format(datetime.datetime.now())
 import matplotlib.pyplot as plt
@@ -39,8 +40,8 @@ MOMENTUM = 0.9
 NUM_CLASSES = 11
 POWER = 0.9
 RANDOM_SEED = 1234
-# PRETRAIN_MODEL = './snapshots/resnet101-imagenet.pth'
-PRETRAIN_MODEL = '/home/xian/Documents/xinpeng/CVPR-PIC-DATA/LIP.pth'
+PRETRAIN_MODEL = '/home/xian/Documents/xinpeng/CVPR-PIC-DATA/resnet101-imagenet.pth'
+# PRETRAIN_MODEL = '/home/xian/Documents/xinpeng/CVPR-PIC-DATA/LIP.pth'
 SAVE_NUM_IMAGES = 2
 SAVE_PRED_EVERY = 10000
 SNAPSHOT_DIR = './snapshots/'
@@ -186,21 +187,21 @@ def main():
     else:
         model = EAGRNet(args.num_classes, InPlaceABN)
 
-    model.cuda()
-    if distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
-    else:
-        model = SingleGPU(model)
-
     if args.restore_from is not None:
         print('loading from {}'.format(args.restore_from))
         model.load_state_dict(torch.load(args.restore_from, map_location='cpu'), True)
     else:
         print('loading from {}'.format(PRETRAIN_MODEL))
-        # dict_ = torch.load(PRETRAIN_MODEL, map_location='cpu')
-        # print(dict_.keys())
+        dict_ = torch.load(PRETRAIN_MODEL, map_location='cpu')
+        print(dict_.keys())
         # print(model)
-        model.load_state_dict(torch.load(PRETRAIN_MODEL, map_location='cpu'), False)
+        model.load_state_dict({k.replace('module.', ''): v for k,v in torch.load(PRETRAIN_MODEL, map_location='cpu').items()}, False)
+
+    model.cuda()
+    if distributed:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
+    else:
+        model = SingleGPU(model)
 
     criterion = CriterionCrossEntropyEdgeParsing_boundary_attention_loss(loss_weight=[1, 1, 4])
     criterion.cuda()
@@ -220,10 +221,6 @@ def main():
         train_sampler = None
     trainloader = data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False, num_workers=8, pin_memory=True, drop_last=True, sampler=train_sampler)
     
-    val_dataset = PICDataSet(args.data_dir, 'val', crop_size=input_size, transform=transform)
-    num_samples = len(val_dataset)
-    valloader = data.DataLoader(val_dataset, batch_size=args.batch_size, num_workers=8, shuffle=False, pin_memory=True, drop_last=False)
-
     optimizer = optim.SGD(
         model.parameters(),
         lr=args.learning_rate,
@@ -243,6 +240,8 @@ def main():
             lr = adjust_learning_rate(optimizer, i_iter, total_iters)
 
             images, labels, edges, _ = batch
+            # embed()
+            # print(images.max(), labels.max(), edges.max())
             labels = labels.long().cuda(non_blocking=True)
             edges = edges.long().cuda(non_blocking=True)
 
@@ -275,7 +274,7 @@ def main():
                     # print(loss.data.cpu().numpy(), glob_t_intv, eta)
                     print('iter: {}/{}/{}, loss: {loss:.4f}, time: {time}/{remain}'.format(i_iter, len(trainloader), total_iters, loss = loss.data.cpu().numpy(), time = glob_t_intv, remain = eta))
 
-                if (i_iter+1) % 500 == 0:
+                if (i_iter+1) % 50 == 0:
 
                     images_inv = inv_preprocess(images, args.save_num_images)
                     labels_colors = decode_parsing(labels, args.save_num_images, args.num_classes, is_pred=False)
@@ -321,5 +320,7 @@ def main():
 if __name__ == '__main__':
     main()
 
-# CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 contest_train.py --data-dir ../CVPR-PIC-DATA/ --random-mirror --random-scale --gpu 0,1,2,3 --learning-rate 1e-3 --weight-decay 5e-4 --batch-size 3 --input-size 473,473 --snapshot-dir ./snapshots/ --dataset train --num-classes 18 --epochs 20
+# CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 contest_train.py --data-dir ../CVPR-PIC-DATA/ --random-mirror --random-scale  --learning-rate 1e-3 --weight-decay 5e-4 --batch-size 3 --input-size 473,473 --snapshot-dir ./snapshots/ --dataset train --num-classes 18 --epochs 10
+
+# CUDA_VISIBLE_DEVICES=3 python contest_train.py --data-dir ../CVPR-PIC-DATA/ --random-mirror --random-scale  --learning-rate 1e-3 --weight-decay 5e-4 --batch-size 3 --input-size 473,473 --snapshot-dir ./snapshots/ --batch-size 3 --dataset train --num-classes 18 --epochs 10
 
